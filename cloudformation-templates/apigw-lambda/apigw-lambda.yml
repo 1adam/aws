@@ -1,0 +1,130 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+
+Transform: 'AWS::Serverless-2016-10-31'
+
+Parameters:
+  MyParameter:
+    Type: String
+
+Resources:
+
+  ApplicationLambdaPermission:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      Action: "lambda:InvokeFunction"
+      FunctionName: !GetAtt ApplicationApp.Arn
+      Principal: "apigateway.amazonaws.com"
+      SourceArn: !Sub
+        - "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${restApiId}/*"
+        - { restApiId: !Ref ApplicationAPI }
+
+  ApplicationAPIdeployment:
+    Type: "AWS::ApiGateway::Deployment"
+    Properties:
+      RestApiId: !Ref ApplicationAPI
+
+  ApplicationAPIstage:
+    Type: "AWS::ApiGateway::Stage"
+    Properties:
+      CacheClusterEnabled: true
+      CacheClusterSize: "0.5"
+      StageName: "stage1"
+      DeploymentId: !Ref ApplicationAPIdeployment
+      RestApiId: !Ref ApplicationAPI
+      MethodSettings:
+      - CacheTtlInSeconds: "300"
+        CachingEnabled: true
+        HttpMethod: "GET"
+        ResourcePath: "/~1method1"
+        MetricsEnabled: true
+        LoggingLevel: "OFF"
+      - CachingEnabled: false
+        HttpMethod: "GET"
+        ResourcePath: "/~1method2"
+        MetricsEnabled: true
+        LoggingLevel: "OFF"
+
+  ApplicationAPI:
+    Type: 'AWS::ApiGateway::RestApi'
+    Properties:
+      Body:
+        swagger: "2.0"
+        produces:
+        - "application/json"
+        consumes:
+        - "application/json"
+        info:
+          title: !Ref AWS::StackName
+        paths:
+          "/method1":
+            get:
+              parameters:
+                - name: param1
+                  in: query
+                  required: false
+                - name: param2
+                  in: query
+                  required: false
+                - name: param3
+                  in: query
+                  required: false
+                - name: header1
+                  in: header
+                  required: true
+              RequestParameters:
+                'method.request.querystring.param1': false
+                'method.request.querystring.param2': false
+                'method.request.querystring.param3': false
+                'method.request.header.header1': true
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                cacheKeyParameters:
+                    - 'method.request.querystring.param1'
+                    - 'method.request.querystring.param2'
+                    - 'method.request.querystring.param3'
+                    - 'method.request.header.header1'
+                requestParameters:
+                    'integration.request.querystring.param1': 'method.request.querystring.param1'
+                    'integration.request.querystring.param2': 'method.request.querystring.param2'
+                    'integration.request.querystring.param3': 'method.request.querystring.param3'
+                    'integration.request.header.header1': 'method.request.header.header1'
+                type: aws_proxy
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApplicationApp.Arn}/invocations
+              responses:
+                "200":
+                  description: "success"
+          "/method2":
+            get:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri:
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApplicationApp.Arn}/invocations
+              responses:
+                "200":
+                  description: "success"
+
+  ApplicationApp:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Handler: index.handler
+      Runtime: nodejs6.10
+      CodeUri: './lambda-code.zip'
+      Policies: AWSLambdaBasicExecutionRole
+      MemorySize: 256
+      Environment:
+        Variables:
+          MY_PARAMETER: !Ref MyParameter
+
+Outputs:
+  LambdaFuncName:
+    Description: The name of the lambda func created
+    Value: !Ref ApplicationApp
+  LambdaFuncArn:
+    Description: The ARN of the lambda func created
+    Value: !GetAtt ApplicationApp.Arn
+  ApiEndpoint:
+    Description: The URL for the API Endpoint
+    Value: !Ref ApplicationAPI
