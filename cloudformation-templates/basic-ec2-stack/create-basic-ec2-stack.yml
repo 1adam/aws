@@ -33,6 +33,20 @@ Parameters:
         Type: String
         Default: 10.192.50.100
 
+    RsaPrivKey:
+        Description: Please enter the RSA Private Key to install on the management instance
+        Type: String
+
+    DefaultAZ:
+        Description: Please enter the availability zone in which everything will be created
+        Type: String
+        Default: us-east-1a
+
+    InstanceImageId:
+        Description: AMI ID to use for the instances
+        Type: String
+        Default: "ami-cd0f5cb6"
+
 Resources:
     VPC:
         Type: AWS::EC2::VPC
@@ -59,7 +73,7 @@ Resources:
         Type: AWS::EC2::Subnet
         Properties:
             VpcId: !Ref VPC
-            AvailabilityZone: !Select [ 0, !GetAZs ]
+            AvailabilityZone: !Ref DefaultAZ
             CidrBlock: !Ref PublicSubnetCIDR
             MapPublicIpOnLaunch: true
             Tags:
@@ -70,7 +84,7 @@ Resources:
         Type: AWS::EC2::Subnet
         Properties:
             VpcId: !Ref VPC
-            AvailabilityZone: !Select [ 0, !GetAZs ]
+            AvailabilityZone: !Ref DefaultAZ
             CidrBlock: !Ref PrivateSubnetCIDR
             MapPublicIpOnLaunch: false
             Tags:
@@ -81,7 +95,7 @@ Resources:
         Type: AWS::EC2::Subnet
         Properties:
             VpcId: !Ref VPC
-            AvailabilityZone: !Select [ 0, !GetAZs ]
+            AvailabilityZone: !Ref DefaultAZ
             CidrBlock: !Ref ManagementSubnetCIDR
             MapPublicIpOnLaunch: false
             Tags:
@@ -166,17 +180,17 @@ Resources:
             GroupDescription: !Sub SecurityGroup for ${EnvironmentName}
             SecurityGroupIngress:
                 - CidrIp: !Ref VpcCIDR
-                  FromPort: 22
-                  ToPort: 22
+                  FromPort: 1
+                  ToPort: 65535
                   IpProtocol: tcp
             VpcId: !Ref VPC
 
     jumpBox:
         Type: AWS::EC2::Instance
         Properties:
-            AvailabilityZone: !Select [ 0, !GetAZs ]
+            AvailabilityZone: !Ref DefaultAZ
             SubnetId: !Ref PublicSubnet
-            ImageId: ami-cd0f5cb6
+            ImageId: !Ref InstanceImageId
             KeyName: nuKP
             InstanceType: t2.nano
             SecurityGroupIds:
@@ -184,13 +198,28 @@ Resources:
             Tags:
               - Key: Name
                 Value: !Sub ${EnvironmentName}-jumpbox
+            UserData:
+                Fn::Base64: !Sub |
+                    #!/bin/bash -ex
+                    echo "${ RsaPrivKey }" > /root/.ssh/id_rsa
+                    chmod 600 /root/.ssh/id_rsa
+                    for hst in ${ ManagementInstance.PrivateIp } ${ SwarmManager.PrivateIp } ${ SwarmWorker1.PrivateIp } ${ SwarmWorker2.PrivateIp } ; do echo "Host ${hst}
+                        User ubuntu
+                        StrictHostKeyChecking no
+                    " >> /root/.ssh/config ; done
+        DependsOn:
+            - ManagementInstance
 
-    EC2management:
+    ManagementInstance:
         Type: AWS::EC2::Instance
+        DependsOn:
+            - SwarmManager
+            - SwarmWorker1
+            - SwarmWorker2
         Properties:
-            AvailabilityZone: !Select [ 0, !GetAZs ]
+            AvailabilityZone: !Ref DefaultAZ
             SubnetId: !Ref ManagementSubnet
-            ImageId: ami-cd0f5cb6
+            ImageId: !Ref InstanceImageId
             KeyName: nuKP
             PrivateIpAddress: !Ref ManagementInstanceIP
             InstanceType: t2.micro
@@ -199,13 +228,42 @@ Resources:
             Tags:
               - Key: Name
                 Value: !Sub ${EnvironmentName}-management
+            UserData:
+                Fn::Base64: !Sub |
+                    #!/bin/bash -ex
+                    apt-get update
+                    apt-get -y install python python-yaml python-jinja2
+                    cd /opt && git clone https://github.com/ansible/ansible.git
+                    mkdir /etc/ansible
+                    cd /etc/ansible
+                    mkdir -p roles/docker-swarm/ group_vars/swarm-workers group_vars/swarm-manager group_vars/swarm
+                    echo "[swarm-manager]
+                    ${ SwarmManager.PrivateIp } 
+                    [swarm-workers]
+                    ${ SwarmWorker1.PrivateIp }
+                    ${ SwarmWorker2.PrivateIp }
+                    [swarm:children]
+                    swarm-manager
+                    swarm-workers
+                    [swarm:vars]
+                    ansible_ssh_private_key_file=/root/.ssh/id_rsa
+                    ansible_ssh_user=ubuntu
+                    " > /etc/ansible/inventory
+                    echo "---" > /etc/ansible/main.yml
+                    echo "${ RsaPrivKey }" > /root/.ssh/id_rsa
+                    chmod 600 /root/.ssh/id_rsa
+                    for hst in ${ SwarmManager.PrivateIp } ${ SwarmWorker1.PrivateIp } ${ SwarmWorker2.PrivateIp } ; do echo "Host ${hst}
+                        User ubuntu
+                        StrictHostKeyChecking no
+                    " >> /root/.ssh/config ; done
+                    echo ". /opt/ansible/hacking/env-setup" >> /root/.bashrc
 
     SwarmManager:
         Type: AWS::EC2::Instance
         Properties:
-            AvailabilityZone: !Select [ 0, !GetAZs ]
+            AvailabilityZone: !Ref DefaultAZ
             SubnetId: !Ref PrivateSubnet
-            ImageId: ami-cd0f5cb6
+            ImageId: !Ref InstanceImageId
             KeyName: nuKP
             InstanceType: t2.micro
             SecurityGroupIds:
@@ -213,13 +271,23 @@ Resources:
             Tags:
               - Key: Name
                 Value: !Sub ${EnvironmentName}-swarm-manager
+            UserData:
+                !Base64 |
+                    #!/bin/bash -ex
+                    apt-get update
+                    apt-get -y install apt-transport-https ca-certificates curl software-properties-common python
+                    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+                    apt-add-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+                    apt-get update
+                    apt-get -y install docker-ce
+                    sleep 10 && docker swarm init
 
     SwarmWorker1:
         Type: AWS::EC2::Instance
         Properties:
-            AvailabilityZone: !Select [ 0, !GetAZs ]
+            AvailabilityZone: !Ref DefaultAZ
             SubnetId: !Ref PrivateSubnet
-            ImageId: ami-cd0f5cb6
+            ImageId: !Ref InstanceImageId
             KeyName: nuKP
             InstanceType: t2.micro
             SecurityGroupIds:
@@ -227,13 +295,22 @@ Resources:
             Tags:
               - Key: Name
                 Value: !Sub ${EnvironmentName}-swarm-worker-1
+            UserData:
+                !Base64 |
+                    #!/bin/bash -ex
+                    apt-get update
+                    apt-get -y install apt-transport-https ca-certificates curl software-properties-common python
+                    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+                    apt-add-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+                    apt-get update
+                    apt-get -y install docker-ce
 
     SwarmWorker2:
         Type: AWS::EC2::Instance
         Properties:
-            AvailabilityZone: !Select [ 0, !GetAZs ]
+            AvailabilityZone: !Ref DefaultAZ
             SubnetId: !Ref PrivateSubnet
-            ImageId: ami-cd0f5cb6
+            ImageId: !Ref InstanceImageId
             KeyName: nuKP
             InstanceType: t2.micro
             SecurityGroupIds:
@@ -241,12 +318,21 @@ Resources:
             Tags:
               - Key: Name
                 Value: !Sub ${EnvironmentName}-swarm-worker-2
+            UserData:
+                !Base64 |
+                    #!/bin/bash -ex
+                    apt-get update
+                    apt-get -y install apt-transport-https ca-certificates curl software-properties-common python
+                    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+                    apt-add-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+                    apt-get update
+                    apt-get -y install docker-ce
 
 Outputs:
 
     ManagementInstanceIP:
         Description: The IP of the management host
-        Value: !GetAtt EC2management.PrivateIp
+        Value: !GetAtt ManagementInstance.PrivateIp
 
     JumpBoxIP:
         Description: The IP of the host in the public network
