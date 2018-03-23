@@ -1,0 +1,578 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: |
+    Create a (simple) CD pipeline, given...
+    - a custom AMI that includes the codedeploy agent, and any other foundation you care to put down
+    - name for your app (no spaces, only a-z 0-9 _ and -)
+    - the instance type.  by default, t2.nano
+    - the environment you're deploying to, one of 'stg', 'prod'
+    - the name of an existing keyPair to grant access to the ec2 instance(s) created
+    - (opt) the IP address (not CIDR) to which ssh access will be granted
+    - the beginning of the VPC CIDR, e.g. "10.20" - this value will have ".0.0/16" appended, and .0.0 and .1.0 subnets created.
+
+Parameters:
+
+  AppName:
+    Type: String
+    Description: "Application Name - only [a-z0-9-_]"
+    AllowedPattern: "^[a-z0-9-_]+$"
+
+  CustomAMI:
+    Type: String
+    Description: Enter the AMI ID for your base image
+    AllowedPattern: "^ami-[A-Za-z0-9]+$"
+
+  InstType:
+    Type: String
+    Description: The instance type to use - defaults to t2.nano
+    Default: 't2.nano'
+
+  EnvType:
+    Type: String
+    Description: "Staging or Production?"
+    AllowedValues:
+    - 'stg'
+    - 'prod'
+    Default: 'stg'
+
+  KeyPair:
+    Type: String
+    Description: Name of the keyPair for access to your system
+
+  ManagementIp:
+    Type: String
+    Description: "(Optional) IP (not CIDR) to allow for management via ssh"
+    MinLength: 0
+    MaxLength: 18
+    AllowedPattern: "((\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3}))?"
+
+  VPCCIDR:
+    Type: String
+    Description: "First two octets of the CIDR for the VPC.  This will have '.0.0/16' appended to it for the VPC CIDR, and .0.0/24 and .1.0/24 for the Subnets.   Defaults to '10.20' (so VPC CIDR would be 10.20.0.0/16)."
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})"
+    Default: "10.20"
+
+Conditions:
+    ProdEnv: !Equals [ !Ref EnvType, prod ]
+    UseManagementIp: !Not [!Equals [ !Ref ManagementIp, ""]]
+
+Resources:
+
+  VPC:
+    Type: "AWS::EC2::VPC"
+    Properties:
+      CidrBlock: !Join
+        - ""
+        - - !Ref VPCCIDR
+          - ".0.0/16"
+      EnableDnsSupport: true
+      EnableDnsHostnames: false
+      InstanceTenancy: default
+      Tags:
+      - Key: Name
+        Value: !Join
+          - "-"
+          - - !Ref AppName
+            - "vpc"
+
+  Subnet1:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: 'us-east-1a'
+      CidrBlock: !Join
+        - ""
+        - - !Ref VPCCIDR
+          - ".0.0/24"
+      Tags:
+        - Key: Name
+          Value: !Join
+            - "-"
+            - - !Ref AppName
+              - "subnet1"
+
+  Subnet2:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: 'us-east-1b'
+      CidrBlock: !Join
+        - ""
+        - - !Ref VPCCIDR
+          - ".1.0/24"
+      Tags:
+        - Key: Name
+          Value: !Join
+            - "-"
+            - - !Ref AppName
+              - "subnet2"
+
+  SecGrp:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupName: !Join
+        - "-"
+        - - !Ref AppName
+          - "secgrp"
+      GroupDescription: !Join
+        - " "
+        - - "SecGrp for"
+          - !Ref AppName
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - CidrIp: "0.0.0.0/0"
+          FromPort: 80
+          ToPort: 80
+          IpProtocol: tcp
+        - !If
+          - UseManagementIp
+          - CidrIp: !Join
+            - ""
+            - - !Ref ManagementIp
+              - "/32"
+            FromPort: 22
+            ToPort: 22
+            IpProtocol: tcp
+          - !Ref "AWS::NoValue"
+
+  LBSecGrp:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupName: !Join
+        - "-"
+        - - !Ref AppName
+          - "lb"
+          - "secgrp"
+      GroupDescription: !Join
+        - " "
+        - - "SecGrp for"
+          - !Ref AppName
+          - "LB"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - CidrIp: "0.0.0.0/0"
+          FromPort: 80
+          ToPort: 80
+          IpProtocol: tcp
+
+  LaunchCfg:
+    Type: "AWS::AutoScaling::LaunchConfiguration"
+    Properties:
+      AssociatePublicIpAddress: true
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      ImageId: !Ref CustomAMI
+      InstanceMonitoring: false
+      InstanceType: !Ref InstType
+      KeyName: !Ref KeyPair
+      SecurityGroups:
+        - !Ref SecGrp
+
+  EC2InstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Roles:
+        - !Ref EC2InstanceRole
+      InstanceProfileName: !Join
+        - "-"
+        - - !Ref AppName
+          - "instprofile"
+
+  EC2InstanceRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument: !Sub |
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ec2.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        }
+      RoleName: !Join
+        - "-"
+        - - !Ref AppName
+          - "instrole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AWSCodeDeployFullAccess"
+        - "arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"
+
+  TargetGroup:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Properties:
+      Name: !Join
+        - "-"
+        - - !Ref AppName
+          - "tg"
+      HealthCheckPath: /
+      HealthCheckPort: 80
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 5
+      HealthCheckTimeoutSeconds: 3
+      HealthyThresholdCount: 3
+      UnhealthyThresholdCount: 2
+      Matcher:
+        HttpCode: 200
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref VPC
+
+  LB:
+    Type: "AWS::ElasticLoadBalancingV2::LoadBalancer"
+    Properties:
+      Name: !Join
+        - "-"
+        - - !Ref AppName
+          - "lb"
+      Scheme: "internet-facing"
+      SecurityGroups:
+        - !Ref LBSecGrp
+      Subnets:
+        - !Ref Subnet1
+        - !Ref Subnet2
+      Type: application
+      IpAddressType: ipv4
+
+  LBListener:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref TargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref LB
+      Port: 80
+      Protocol: HTTP
+
+  LBListenerRule:
+    Type: "AWS::ElasticLoadBalancingV2::ListenerRule"
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref TargetGroup
+          Type: forward
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - /*
+      ListenerArn: !Ref LBListener
+      Priority: 1
+
+  ASG:
+    Type: "AWS::AutoScaling::AutoScalingGroup"
+    Properties:
+      AutoScalingGroupName: !Join
+        - "-"
+        - - !Ref AppName
+          - "asg"
+      AvailabilityZones:
+        - !GetAtt Subnet1.AvailabilityZone
+        - !GetAtt Subnet2.AvailabilityZone
+      Cooldown: 180
+      DesiredCapacity: 1
+      MinSize: 1
+      MaxSize: 2
+      HealthCheckGracePeriod: 180
+      HealthCheckType: EC2
+      LaunchConfigurationName: !Ref LaunchCfg
+      TargetGroupARNs:
+        - !Ref TargetGroup
+      VPCZoneIdentifier:
+        - !Ref Subnet1
+        - !Ref Subnet2
+
+  CodeDepApp:
+    Type: "AWS::CodeDeploy::Application"
+    Properties:
+      ApplicationName: !Ref AppName
+
+  CodeDepGrp:
+    Type: "AWS::CodeDeploy::DeploymentGroup"
+    Properties:
+      DeploymentGroupName: !Join
+        - "-"
+        - - !Ref AppName
+          - "depgrp"
+      ApplicationName: !Ref AppName
+      AutoScalingGroups:
+        - !Ref ASG
+      DeploymentConfigName: "CodeDeployDefault.AllAtOnce"
+      DeploymentStyle:
+        DeploymentOption: WITH_TRAFFIC_CONTROL
+        DeploymentType: IN_PLACE
+      LoadBalancerInfo:
+        TargetGroupInfoList:
+          - Name: !GetAtt TargetGroup.TargetGroupName
+      ServiceRoleArn: !GetAtt CodeDepSvcRole.Arn
+
+  CodeDepSvcRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Join
+        - "-"
+        - - !Ref AppName
+          - "cd"
+          - "svc"
+          - "role"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole"
+      AssumeRolePolicyDocument: !Sub |
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "codedeploy.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        }
+
+  Pipeline:
+    Type: "AWS::CodePipeline::Pipeline"
+    Properties:
+      ArtifactStore:
+        Location: !Ref PipeIncBucket
+        Type: S3
+      Name: !Join
+        - "-"
+        - - !Ref AppName
+          - "pipe"
+      RoleArn: !GetAtt CodePipeSvcRole.Arn
+      Stages:
+        - Name: GetSource
+          Actions:
+            - Name: get-source
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: S3
+                Version: "1"
+              Configuration:
+                S3Bucket: !Ref PipeIncBucket
+                S3ObjectKey: 'app-source.tgz'
+                PollForSourceChanges: true
+              OutputArtifacts:
+                - Name: fetchedSource
+        - Name: DoDeploy
+          Actions:
+            - Name: do-deploy
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CodeDeploy
+                Version: "1"
+              Configuration:
+                ApplicationName: !Ref CodeDepApp
+                DeploymentGroupName: !Ref CodeDepGrp
+              InputArtifacts:
+                - Name: fetchedSource
+
+  CodePipeSvcRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument: !Sub |
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "codepipeline.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        }
+      Policies:
+        - PolicyName: !Join
+            - "-"
+            - - !Ref AppName
+              - "pipe"
+              - "svc"
+              - "policy"
+          PolicyDocument: !Sub |
+            {
+                "Statement": [
+                    {
+                        "Action": [
+                            "s3:GetObject",
+                            "s3:GetObjectVersion",
+                            "s3:GetBucketVersioning"
+                        ],
+                        "Resource": "*",
+                        "Effect": "Allow"
+                    },
+                    {
+                        "Action": [
+                            "s3:PutObject"
+                        ],
+                        "Resource": [
+                            "arn:aws:s3:::codepipeline*",
+                            "arn:aws:s3:::elasticbeanstalk*"
+                        ],
+                        "Effect": "Allow"
+                    },
+                    {
+                        "Action": [
+                            "codecommit:CancelUploadArchive",
+                            "codecommit:GetBranch",
+                            "codecommit:GetCommit",
+                            "codecommit:GetUploadArchiveStatus",
+                            "codecommit:UploadArchive"
+                        ],
+                        "Resource": "*",
+                        "Effect": "Allow"
+                    },
+                    {
+                        "Action": [
+                            "codedeploy:CreateDeployment",
+                            "codedeploy:GetApplicationRevision",
+                            "codedeploy:GetDeployment",
+                            "codedeploy:GetDeploymentConfig",
+                            "codedeploy:RegisterApplicationRevision"
+                        ],
+                        "Resource": "*",
+                        "Effect": "Allow"
+                    },
+                    {
+                        "Action": [
+                            "elasticbeanstalk:*",
+                            "ec2:*",
+                            "elasticloadbalancing:*",
+                            "autoscaling:*",
+                            "cloudwatch:*",
+                            "s3:*",
+                            "sns:*",
+                            "cloudformation:*",
+                            "rds:*",
+                            "sqs:*",
+                            "ecs:*",
+                            "iam:PassRole"
+                        ],
+                        "Resource": "*",
+                        "Effect": "Allow"
+                    },
+                    {
+                        "Action": [
+                            "lambda:InvokeFunction",
+                            "lambda:ListFunctions"
+                        ],
+                        "Resource": "*",
+                        "Effect": "Allow"
+                    },
+                    {
+                        "Action": [
+                            "opsworks:CreateDeployment",
+                            "opsworks:DescribeApps",
+                            "opsworks:DescribeCommands",
+                            "opsworks:DescribeDeployments",
+                            "opsworks:DescribeInstances",
+                            "opsworks:DescribeStacks",
+                            "opsworks:UpdateApp",
+                            "opsworks:UpdateStack"
+                        ],
+                        "Resource": "*",
+                        "Effect": "Allow"
+                    },
+                    {
+                        "Action": [
+                            "cloudformation:CreateStack",
+                            "cloudformation:DeleteStack",
+                            "cloudformation:DescribeStacks",
+                            "cloudformation:UpdateStack",
+                            "cloudformation:CreateChangeSet",
+                            "cloudformation:DeleteChangeSet",
+                            "cloudformation:DescribeChangeSet",
+                            "cloudformation:ExecuteChangeSet",
+                            "cloudformation:SetStackPolicy",
+                            "cloudformation:ValidateTemplate",
+                            "iam:PassRole"
+                        ],
+                        "Resource": "*",
+                        "Effect": "Allow"
+                    },
+                    {
+                        "Action": [
+                            "codebuild:BatchGetBuilds",
+                            "codebuild:StartBuild"
+                        ],
+                        "Resource": "*",
+                        "Effect": "Allow"
+                    }
+                ],
+                "Version": "2012-10-17"
+            }
+
+  PipeIncBucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: !Join
+        - "-"
+        - - !Ref AppName
+          - "pipe"
+          - "inc"
+          - "bkt"
+      AccessControl: "Private"
+      VersioningConfiguration:
+        Status: Enabled
+
+
+  VPCigw:
+    Type: "AWS::EC2::InternetGateway"
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Join
+            - "-"
+            - - !Ref AppName
+              - "vpc"
+              - "igw"
+
+  IGWattach:
+    Type: "AWS::EC2::VPCGatewayAttachment"
+    Properties:
+      InternetGatewayId: !Ref VPCigw
+      VpcId: !Ref VPC
+
+  RouteTable:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join
+            - "-"
+            - - !Ref AppName
+              - "rt"
+
+  PubRoute:
+    Type: "AWS::EC2::Route"
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref VPCigw
+      RouteTableId: !Ref RouteTable
+
+  Subnet1RTassoc:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties: 
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref Subnet1
+
+  Subnet2RTassoc:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties: 
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref Subnet2
+
+
+Outputs:
+
+  HTTPEndpoint:
+    Value: !GetAtt LB.DNSName
