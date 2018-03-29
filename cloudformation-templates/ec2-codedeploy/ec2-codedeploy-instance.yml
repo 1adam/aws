@@ -1,0 +1,46 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Given an Ubuntu AMI ID, spin up an instance, install CodeDeploy agent, create new AMI.
+
+Parameters:
+
+  SourceAMI:
+    Type: "AWS::EC2::Image::Id"
+    Description: "The AMI ID to install the CodeDeploy agent on (ideally Ubuntu 16)" # ToDo: auto look-this-up
+
+  KeyPair:
+    Type: "AWS::EC2::KeyPair"
+    Description: "The keyPair to use to connect via ssh"
+
+  ManagementIp:
+    Type: String
+    Description: "(Optional) IP (not CIDR) to allow for management via ssh"
+    MinLength: 0
+    MaxLength: 18
+    AllowedPattern: "((\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3}))?"
+
+Resources:
+
+  BaseInstance:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      ImageId: !Ref SourceAMI
+      InstanceType: "t2.nano"
+      KeyName: !Ref KeyPair
+      UserData: !Base64
+      !Sub |
+        #!/bin/bash
+        sudo apt-get update
+        sudo apt-get -y install ruby wget
+        cd /home/ubuntu
+        wget https://aws-codedeploy-us-east-1.s3.amazonaws.com/latest/install
+        chmod +x ./install
+        sudo ./install auto
+        sudo service codedeploy-agent status
+
+  
+
+Outputs:
+
+  FinalAMI:
+    Value: !Ref CreatedAMI

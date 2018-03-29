@@ -19,12 +19,12 @@ Parameters:
 
   CustomAMI:
     Type: String
-    Description: Enter the AMI ID for your base image
+    Description: "Enter the AMI ID for your base image.  This should have the CodeDeploy agent installed."
     AllowedPattern: "^ami-[A-Za-z0-9]+$"
 
   InstType:
     Type: String
-    Description: The instance type to use - defaults to t2.nano
+    Description: "The instance type to use - defaults to t2.nano"
     Default: 't2.nano'
 
   EnvType:
@@ -36,7 +36,7 @@ Parameters:
     Default: 'stg'
 
   KeyPair:
-    Type: String
+    Type: AWS::EC2::KeyPair::KeyName
     Description: Name of the keyPair for access to your system
 
   ManagementIp:
@@ -561,13 +561,13 @@ Resources:
 
   Subnet1RTassoc:
     Type: "AWS::EC2::SubnetRouteTableAssociation"
-    Properties: 
+    Properties:
       RouteTableId: !Ref RouteTable
       SubnetId: !Ref Subnet1
 
   Subnet2RTassoc:
     Type: "AWS::EC2::SubnetRouteTableAssociation"
-    Properties: 
+    Properties:
       RouteTableId: !Ref RouteTable
       SubnetId: !Ref Subnet2
 
