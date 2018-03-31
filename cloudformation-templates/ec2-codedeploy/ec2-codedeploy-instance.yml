@@ -1,46 +1,285 @@
 ---
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Given an Ubuntu AMI ID, spin up an instance, install CodeDeploy agent, create new AMI.
+Description: Finds the latest Ubuntu LTS AMI, spins up an instance, installs the CodeDeploy agent, creates a new AMI.
 
 Parameters:
 
-  SourceAMI:
-    Type: "AWS::EC2::Image::Id"
-    Description: "The AMI ID to install the CodeDeploy agent on (ideally Ubuntu 16)" # ToDo: auto look-this-up
-
   KeyPair:
-    Type: "AWS::EC2::KeyPair"
+    Type: "AWS::EC2::KeyPair::KeyName"
     Description: "The keyPair to use to connect via ssh"
-
-  ManagementIp:
-    Type: String
-    Description: "(Optional) IP (not CIDR) to allow for management via ssh"
-    MinLength: 0
-    MaxLength: 18
-    AllowedPattern: "((\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3}))?"
 
 Resources:
 
   BaseInstance:
+    DependsOn: SourceAMI
     Type: "AWS::EC2::Instance"
     Properties:
-      ImageId: !Ref SourceAMI
+      ImageId: !GetAtt SourceAMI.Id
       InstanceType: "t2.nano"
+#      IamInstanceProfile: !Ref BaseInstanceProfile
       KeyName: !Ref KeyPair
-      UserData: !Base64
-      !Sub |
-        #!/bin/bash
-        sudo apt-get update
-        sudo apt-get -y install ruby wget
-        cd /home/ubuntu
-        wget https://aws-codedeploy-us-east-1.s3.amazonaws.com/latest/install
-        chmod +x ./install
-        sudo ./install auto
-        sudo service codedeploy-agent status
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          sudo apt-get update
+          sudo apt-get -y dist-upgrade
+          sudo apt-get -y install ruby wget
+          cd /home/ubuntu
+          wget https://aws-codedeploy-us-east-1.s3.amazonaws.com/latest/install
+          chmod +x ./install
+          sudo ./install auto
+          sudo service codedeploy-agent status
 
-  
+  # BaseInstanceProfile:
+  #   DependsOn: BaseInstanceProfileRole
+  #   Type: "AWS::IAM::InstanceProfile"
+  #   Properties:
+  #     Roles:
+  #       - !Ref BaseInstanceProfileRole
+
+  # BaseInstanceProfileRole:
+  #   Type: "AWS::IAM::Role"
+  #   Properties:
+  #     AssumeRolePolicyDocument:
+  #       Version: "2012-10-17"
+  #       Statement:
+  #         - Effect: "Allow"
+  #           Principal:
+  #             - "ec2.amazonaws.com"
+  #           Action:
+  #             - "sts:AssumeRole"
+  #     Path: "/"
+  #     ManagedPolicyArns:
+  #       - "arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforAWSCodeDeploy"
+
+  LatestAMIfunc:
+    DependsOn: LambdaExecRole
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Runtime: "nodejs4.3"
+      Timeout: 15
+      Handler: "index.handler"
+      Role: !GetAtt LambdaExecRole.Arn
+      Code:
+        ZipFile: |
+          'use strict';
+          const aws = require('aws-sdk');
+          const https = require('https');
+          const url = require('url');
+          const isBeta = (imageName) => imageName.toLowerCase().includes('beta') || imageName.toLowerCase().includes('.rc');
+          function sendResponse(event, callback, logStreamName, responseStatus, responseData) {
+            const responseBody = JSON.stringify({
+                Status: responseStatus,
+                Reason: `See the details in CloudWatch Log Stream: ${logStreamName}`,
+                PhysicalResourceId: logStreamName,
+                StackId: event.StackId,
+                RequestId: event.RequestId,
+                LogicalResourceId: event.LogicalResourceId,
+                Data: responseData,
+            });
+            console.log('RESPONSE BODY:\n', responseBody);
+            const parsedUrl = url.parse(event.ResponseURL);
+            const options = {
+                hostname: parsedUrl.hostname,
+                port: 443,
+                path: parsedUrl.path,
+                method: 'PUT',
+                headers: {
+                    'Content-Type': '',
+                    'Content-Length': responseBody.length,
+                },
+            };
+            const req = https.request(options, (res) => {
+                console.log('STATUS:', res.statusCode);
+                console.log('HEADERS:', JSON.stringify(res.headers));
+                callback(null, 'Successfully sent stack response!');
+            });
+            req.on('error', (err) => {
+                console.log('sendResponse Error:\n', err);
+                callback(err);
+            });
+            req.write(responseBody);
+            req.end();
+          }
+          exports.handler = (event, context, callback) => {
+            if (event.RequestType === 'Delete') {
+                sendResponse(event, callback, context.logStreamName, 'SUCCESS');
+                return; }
+            let responseStatus = 'FAILED';
+            let responseData = {};
+            const ec2 = new aws.EC2({ region: event.ResourceProperties.Region });
+            const describeImagesParams = {
+                Filters: [{ Name: 'name', Values: ['ubuntu/images/hvm-ssd/ubuntu-*-*-amd64-server-*']},
+                          { Name: 'description', Values: ['*LTS*'] }]
+            };
+            ec2.describeImages(describeImagesParams, (err, data) => {
+                if (err) {
+                    responseData = { Error: 'DescribeImages call failed' };
+                    console.log(`${responseData.Error}:\n`, err);
+                } else {
+                    const images = data.Images;
+                    images.sort((x, y) => y.Name.localeCompare(x.Name));
+                    for (let i = 0; i < images.length; i++) {
+                        if (!isBeta(images[i].Name)) {
+                            responseStatus = 'SUCCESS';
+                            responseData.Id = images[i].ImageId;
+                            break;
+                        }
+                    }
+                }
+                sendResponse(event, callback, context.logStreamName, responseStatus, responseData);
+            });
+          };
+
+  LambdaExecRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Action:
+              - "sts:AssumeRole"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+      Path: "/"
+      Policies:
+        - PolicyName: "Lambda-WriteLog-DescEc2Imgs"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - "ec2:DescribeImages"
+                Resource: "*"
+
+  SourceAMI:
+    DependsOn: LatestAMIfunc
+    Type: "Custom::SourceAMI"
+    Properties:
+      ServiceToken: !GetAtt LatestAMIfunc.Arn
+      Region: !Ref "AWS::Region"
+
+  ImageId:
+    DependsOn: MkImageFunc
+    Type: "Custom::ImageId"
+    DeletionPolicy: "Retain"
+    Properties:
+      ServiceToken: !GetAtt MkImageFunc.Arn
+      Region: !Ref "AWS::Region"
+
+  MkImageFunc:
+    DependsOn: LambdaExecImageRole
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Runtime: "nodejs4.3"
+      Timeout: 120
+      Handler: "index.handler"
+      Role: !GetAtt LambdaExecImageRole.Arn
+      Environment:
+        Variables:
+          INST_ID: !Ref BaseInstance
+      Code:
+        ZipFile: |
+          'use strict';
+          const aws = require('aws-sdk');
+          const https = require('https');
+          const url = require('url');
+          function sendResponse(event, callback, logStreamName, responseStatus, responseData) {
+            const responseBody = JSON.stringify({
+                Status: responseStatus,
+                Reason: `See the details in CloudWatch Log Stream: ${logStreamName}`,
+                PhysicalResourceId: logStreamName,
+                StackId: event.StackId,
+                RequestId: event.RequestId,
+                LogicalResourceId: event.LogicalResourceId,
+                Data: responseData,
+            });
+            console.log('RESPONSE BODY:\n', responseBody);
+            const parsedUrl = url.parse(event.ResponseURL);
+            const options = {
+                hostname: parsedUrl.hostname,
+                port: 443,
+                path: parsedUrl.path,
+                method: 'PUT',
+                headers: {
+                    'Content-Type': '',
+                    'Content-Length': responseBody.length,
+                },
+            };
+            const req = https.request(options, (res) => {
+                console.log('STATUS:', res.statusCode);
+                console.log('HEADERS:', JSON.stringify(res.headers));
+                callback(null, 'Successfully sent stack response!');
+            });
+            req.on('error', (err) => {
+                console.log('sendResponse Error:\n', err);
+                callback(err);
+            });
+            req.write(responseBody);
+            req.end();
+          }
+          exports.handler = (event, context, callback) => {
+            if (event.RequestType === 'Delete') {
+                sendResponse(event, callback, context.logStreamName, 'SUCCESS');
+                return; }
+            let responseStatus = 'FAILED';
+            let responseData = {};
+            const ec2 = new aws.EC2({ region: event.ResourceProperties.Region });
+            const mkImgParams = {
+              InstanceId: process.env.INST_ID,
+              Name: "ubuntu16-codedeploy_" + Date.now()
+            };
+            ec2.createImage(mkImgParams, (err, data) => {
+              if (err) {
+                  responseData = { Error: 'CreateImage call failed' };
+                  console.log(`${responseData.Error}:\n`, err);
+              } else {
+                  responseStatus = 'SUCCESS';
+                  responseData.ImageId = data.ImageId;
+              }
+              sendResponse(event, callback, context.logStreamName, responseStatus, responseData);
+            });
+          };
+
+  LambdaExecImageRole:
+    DependsOn: BaseInstance
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Action:
+              - "sts:AssumeRole"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+      Path: "/"
+      Policies:
+        - PolicyName: "Lambda-ImageEc2Inst"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - "ec2:CreateImage"
+                Resource: "*"
 
 Outputs:
 
   FinalAMI:
-    Value: !Ref CreatedAMI
+    Value: !GetAtt ImageId.ImageId
