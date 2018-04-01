@@ -1,6 +1,6 @@
 ---
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Finds the latest Ubuntu LTS AMI, spins up an instance, installs the cfn helper scripts, installs LAMP pkgs, creates a new AMI.
+Description: Finds the latest Ubuntu LTS AMI, spins up an instance, installs the cfn helper scripts, installs LAMP pkgs & codeDeploy agent, creates a new AMI.
 
 Parameters:
 
