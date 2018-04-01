@@ -336,3 +336,8 @@ Outputs:
 
   FinalAMI:
     Value: !GetAtt ImageId.ImageId
+    Export:
+      Name: !Join
+        - ":"
+        - - !Ref AWS::StackName
+          - "CreatedAMI"

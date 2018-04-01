@@ -576,3 +576,5 @@ Outputs:
 
   HTTPEndpoint:
     Value: !GetAtt LB.DNSName
+  UploadBucket:
+    Value: !Ref PipeIncBucket
