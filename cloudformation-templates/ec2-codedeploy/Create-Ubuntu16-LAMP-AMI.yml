@@ -1,6 +1,6 @@
 ---
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Finds the latest Ubuntu LTS AMI, spins up an instance, installs the cfn helper scripts, creates a new AMI.
+Description: Finds the latest Ubuntu LTS AMI, spins up an instance, installs the cfn helper scripts, installs LAMP pkgs, creates a new AMI.
 
 Parameters:
 
@@ -16,16 +16,43 @@ Resources:
     Metadata:
       "AWS::CloudFormation::Init":
         config:
-          # packages:
+          packages:
+            apt:
+              apache2: []
+              php: []
+              libapache2-mod-php: []
+              mysql-server: []
+              mysql-client: []
+              php-mysql: []
+              ruby: []
           # groups:
           # users:
           # sources:
           # files:
           commands:
+            agentInst001:
+              command: !Sub "wget \"https://aws-codedeploy-${AWS::Region}.s3.amazonaws.com/latest/install\" -O /tmp/codedeploy-install"
+            agentInst002:
+              command: chmod 755 /tmp/codedeploy-install
+            agentInst003:
+              command: /tmp/codedeploy-install auto
+            agentInst004:
+              command: service codedeploy-agent restart
+            agentInst005:
+              command: service codedeploy-agent status
             agentInst999:
               command: !Sub "cfn-signal -s true --stack \"${AWS::StackName}\" -r \"Setup Done\" -i \"${AWS::StackName}cfgRun\" -d \"server setup has completed successfully\" \"${theWaitHandle}\""
-          # services:
-          #   sysvinit:
+          services:
+            sysvinit:
+              apache2:
+                enabled: true
+                ensureRunning: true
+              mysql:
+                enabled: true
+                ensureRunning: true
+              codedeploy-agent:
+                enabled: true
+                ensureRunning: true
 
     Properties:
       ImageId: !GetAtt SourceAMI.Id
