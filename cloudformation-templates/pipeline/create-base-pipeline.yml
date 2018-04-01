@@ -19,11 +19,19 @@ Parameters:
 
   ASG:
     Type: "String"
-    Description: "ID of the ASG to plonk deployments into"
+    Description: "ID of the ASG to plonk deployments into - STG"
 
   TargetGroupName:
     Type: "String"
-    Description: "Name of Target group to which the app will be deployed"
+    Description: "Name of Target group to which the app will be deployed - STG"
+
+  ASGprod:
+    Type: "String"
+    Description: "ID of the ASG to plonk deployments into - PROD"
+
+  TargetGroupNamePROD:
+    Type: "String"
+    Description: "Name of Target group to which the app will be deployed - PROD"
 
 
 Conditions:
@@ -39,7 +47,7 @@ Resources:
   CodeDepGrp:
     Type: "AWS::CodeDeploy::DeploymentGroup"
     Properties:
-      DeploymentGroupName: !Sub "${AWS::StackName}-depGrp"
+      DeploymentGroupName: !Sub "${AWS::StackName}-depGrp-stg"
       ApplicationName: !Ref AppName
       AutoScalingGroups:
         - !Ref ASG
@@ -50,6 +58,22 @@ Resources:
       LoadBalancerInfo:
         TargetGroupInfoList:
           - Name: !Ref TargetGroupName
+      ServiceRoleArn: !GetAtt CodeDepSvcRole.Arn
+
+  CodeDepGrpPROD:
+    Type: "AWS::CodeDeploy::DeploymentGroup"
+    Properties:
+      DeploymentGroupName: !Sub "${AWS::StackName}-depGrp-prod"
+      ApplicationName: !Ref AppName
+      AutoScalingGroups:
+        - !Ref ASGprod
+      DeploymentConfigName: "CodeDeployDefault.AllAtOnce"
+      DeploymentStyle:
+        DeploymentOption: WITH_TRAFFIC_CONTROL
+        DeploymentType: IN_PLACE
+      LoadBalancerInfo:
+        TargetGroupInfoList:
+          - Name: !Ref TargetGroupNamePROD
       ServiceRoleArn: !GetAtt CodeDepSvcRole.Arn
 
   CodeDepSvcRole:
