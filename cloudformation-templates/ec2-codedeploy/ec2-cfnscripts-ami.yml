@@ -16,23 +16,16 @@ Resources:
     Metadata:
       "AWS::CloudFormation::Init":
         config:
-          packages:
-            apt:
-              curl: []
-              # ruby: []
-              # apache2: []
+          # packages:
           # groups:
           # users:
           # sources:
           # files:
           commands:
             agentInst001:
-              command: !Sub "curl -X PUT -H \"Content-Type:\" --data-binary '{\"Status\":\"SUCCESS\", \"Reason\":\"Setup Done\", \"UniqueId\":\"${AWS::StackName}cfgRun\",\"Data\":\"server setup has completed successfully\"}' \"${theWaitHandle}\""
-          services:
-            sysvinit:
-              apache2:
-                enabled: true
-                ensureRunning: true
+              command: !Sub "cfn-signal -s true --stack \"${AWS::StackName}\" -r \"Setup Done\" -i \"${AWS::StackName}cfgRun\" -d \"server setup has completed successfully\" \"${theWaitHandle}\""
+          # services:
+          #   sysvinit:
 
     Properties:
       ImageId: !GetAtt SourceAMI.Id
@@ -258,7 +251,7 @@ Resources:
             const ec2 = new aws.EC2({ region: event.ResourceProperties.Region });
             const mkImgParams = {
               InstanceId: process.env.INST_ID,
-              Name: "ubuntu16-codedeploy_" + Date.now()
+              Name: "ubuntu16_" + Date.now()
             };
             ec2.createImage(mkImgParams, (err, data) => {
               if (err) {
