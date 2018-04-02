@@ -185,3 +185,7 @@ Outputs:
 
   HTTPEndpoint:
     Value: !GetAtt LB.DNSName
+  TGname:
+    Value: !GetAtt TargetGroup.TargetGroupName
+  ASGname:
+    Value: !Ref ASG

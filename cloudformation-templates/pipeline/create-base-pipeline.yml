@@ -9,14 +9,6 @@ Parameters:
     Description: "Application Name - only [a-z0-9-_]"
     AllowedPattern: "^[a-z0-9-_]+$"
 
-  EnvType:
-    Type: String
-    Description: "Staging or Production?"
-    AllowedValues:
-    - 'stg'
-    - 'prod'
-    Default: 'stg'
-
   ASG:
     Type: "String"
     Description: "ID of the ASG to plonk deployments into - STG"
@@ -33,9 +25,6 @@ Parameters:
     Type: "String"
     Description: "Name of Target group to which the app will be deployed - PROD"
 
-
-Conditions:
-    ProdEnv: !Equals [ !Ref EnvType, prod ]
 
 Resources:
 
@@ -119,7 +108,7 @@ Resources:
                 PollForSourceChanges: true
               OutputArtifacts:
                 - Name: fetchedSource
-        - Name: DoDeployments
+        - Name: DoStgDeployment
           Actions:
             - Name: do-deploy-stg
               ActionTypeId:
@@ -132,23 +121,27 @@ Resources:
                 DeploymentGroupName: !Ref CodeDepGrp
               InputArtifacts:
                 - Name: fetchedSource
+        - Name: WaitForApproval
+          Actions:
             - Name: get-approval
               ActionTypeId:
                 Category: Approval
                 Owner: AWS
                 Provider: Manual
                 Version: "1"
-            # - Name: do-deploy-prod
-            #   ActionTypeId:
-            #     Category: Deploy
-            #     Owner: AWS
-            #     Provider: CodeDeploy
-            #     Version: "1"
-            #   Configuration:
-            #     ApplicationName: !Ref CodeDepApp
-            #     DeploymentGroupName: !Ref CodeDepGrpPROD
-            #   InputArtifacts:
-            #     - Name: fetchedSource
+        - Name: DoProdDeployment
+          Actions:
+            - Name: do-deploy-prod
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CodeDeploy
+                Version: "1"
+              Configuration:
+                ApplicationName: !Ref CodeDepApp
+                DeploymentGroupName: !Ref CodeDepGrpPROD
+              InputArtifacts:
+                - Name: fetchedSource
 
 
   CodePipeSvcRole:
