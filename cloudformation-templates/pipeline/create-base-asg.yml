@@ -5,9 +5,8 @@ Description: Create an ASG (to support a codepipeline/codedeploy deployment)
 Parameters:
 
   CustomAMI:
-    Type: String
+    Type: "AWS::EC2::Image::Id"
     Description: "Enter the AMI ID for your base image.  This should have the CodeDeploy agent installed."
-    AllowedPattern: "^ami-[A-Za-z0-9]+$"
 
   InstType:
     Type: String
