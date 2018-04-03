@@ -1,6 +1,6 @@
 ---
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Create a (simple) CD pipeline, given... stuff
+Description: Create a (simple) CD pipeline, given an app name, 2 ASGs (stg/prod), and 2 TargetGroups (stg/prod)
 
 Parameters:
 

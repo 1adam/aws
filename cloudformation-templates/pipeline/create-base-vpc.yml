@@ -4,12 +4,6 @@ Description: Create a VPC with (for now, public) subnets
 
 Parameters:
 
-  # ManagementIp:
-  #   Type: String
-  #   Description: "(Optional) IP (not CIDR) to allow for management via ssh"
-  #   MinLength: 0
-  #   MaxLength: 18
-  #   AllowedPattern: "((\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3}))?"
   VPCcidr:
     Type: String
     Description: "CIDR Block for the VPC."
@@ -18,7 +12,7 @@ Parameters:
 
   SNcidrs:
     Type: CommaDelimitedList
-    Description: "Comma-delimited list of two CIDR blocks for the subnets.  These must fall within the VPC CIDR block."
+    Description: "Comma-delimited list of two CIDR blocks for the subnets.  These must fall within the VPC CIDR block, and not overlap."
     Default: "10.20.0.0/24, 10.20.1.0/24"
 
 Resources:
