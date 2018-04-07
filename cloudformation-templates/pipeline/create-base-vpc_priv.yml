@@ -186,6 +186,11 @@ Resources:
       Monitoring: false
       SubnetId: !Ref Subnet1pub
       SourceDestCheck: false
+      SecurityGroupIds:
+        - !GetAtt NAT1SecGrp.GroupId
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-nat1"
 
   NATinstance2:
     Type: "AWS::EC2::Instance"
@@ -197,7 +202,50 @@ Resources:
       Monitoring: false
       SubnetId: !Ref Subnet2pub
       SourceDestCheck: false
+      SecurityGroupIds:
+        - !GetAtt NAT2SecGrp.GroupId
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-nat2"
 
+  NAT1SecGrp:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupName: !Sub "${AWS::StackName}-nat1SG"
+      GroupDescription: "For the NAT instances"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - CidrIp: !Select
+            - 1
+            - !Ref SNcidrs
+          Description: "Allow passthru traffic"
+          IpProtocol: -1
+
+  NAT2SecGrp:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupName: !Sub "${AWS::StackName}-nat2SG"
+      GroupDescription: "For the NAT instances"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - CidrIp: !Select
+            - 3
+            - !Ref SNcidrs
+          Description: "Allow passthru traffic"
+          IpProtocol: -1
+
+  PrivInstSecGrp:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupName: !Sub "${AWS::StackName}-privSG"
+      GroupDescription: "Control access to instances in the private subnets"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - CidrIp: !GetAtt VPC.CidrBlock
+          Description: "Allow ssh from inside"
+          IpProtocol: "tcp"
+          FromPort: 22
+          ToPort: 22
 
 Outputs:
 
