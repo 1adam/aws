@@ -1,0 +1,213 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Create a VPC with 2 public and 2 private subnets (1 of each type in 2 AZs)
+
+Parameters:
+
+  VPCcidr:
+    Type: String
+    Description: "CIDR Block for the VPC."
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\/(\\d{1,2})"
+    Default: "10.20.0.0/16"
+
+  SNcidrs:
+    Type: CommaDelimitedList
+    Description: "Comma-delimited list of four CIDR blocks for the subnets (2 pub, 2 priv in diff AZs).  These must fall within the VPC CIDR block, and not overlap."
+    Default: "10.20.0.0/24, 10.20.1.0/24, 10.20.2.0/24, 10.20.3.0/24"
+
+  KeyPair:
+    Type: "AWS::EC2::KeyPair::KeyName"
+    Description: "Name of the KeyPair that will be used to connect to the instances"
+
+  NATimage:
+    Type: "AWS::EC2::Image::Id"
+    Description: "AMI ID of a NAT instance"
+
+Resources:
+
+  VPC:
+    Type: "AWS::EC2::VPC"
+    Properties:
+      CidrBlock: !Ref VPCcidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: false
+      InstanceTenancy: default
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName}-vpc"
+
+  Subnet1pub:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select
+        - 0
+        - Fn::GetAZs: !Sub "${AWS::Region}"
+      CidrBlock: !Select
+        - 0
+        - !Ref SNcidrs
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-subnet1pub"
+
+  Subnet1priv:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select
+        - 0
+        - Fn::GetAZs: !Sub "${AWS::Region}"
+      CidrBlock: !Select
+        - 1
+        - !Ref SNcidrs
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-subnet1priv"
+
+  Subnet2pub:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select
+        - 1
+        - Fn::GetAZs: !Sub "${AWS::Region}"
+      CidrBlock: !Select
+        - 2
+        - !Ref SNcidrs
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-subnet2pub"
+
+  Subnet2priv:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select
+        - 1
+        - Fn::GetAZs: !Sub "${AWS::Region}"
+      CidrBlock: !Select
+        - 3
+        - !Ref SNcidrs
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-subnet2priv"
+
+  VPCigw:
+    Type: "AWS::EC2::InternetGateway"
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-vpc-igw"
+
+  IGWattach:
+    Type: "AWS::EC2::VPCGatewayAttachment"
+    Properties:
+      InternetGatewayId: !Ref VPCigw
+      VpcId: !Ref VPC
+
+  RouteTablePub:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-rt-pub"
+
+  RouteTablePriv1:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-rt-priv1"
+
+  RouteTablePriv2:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-rt-priv2"
+
+  PubRoute:
+    Type: "AWS::EC2::Route"
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref VPCigw
+      RouteTableId: !Ref RouteTablePub
+
+  PrivRoute1:
+    Type: "AWS::EC2::Route"
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      InstanceId: !Ref NATinstance1
+      RouteTableId: !Ref RouteTablePriv1
+
+  PrivRoute2:
+    Type: "AWS::EC2::Route"
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      InstanceId: !Ref NATinstance2
+      RouteTableId: !Ref RouteTablePriv2
+
+  Subnet1RTassocPub:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTablePub
+      SubnetId: !Ref Subnet1pub
+
+  Subnet1RTassocPriv:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTablePriv1
+      SubnetId: !Ref Subnet1priv
+
+  Subnet2RTassocPub:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTablePub
+      SubnetId: !Ref Subnet2pub
+
+  Subnet2RTassocPriv:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTablePriv2
+      SubnetId: !Ref Subnet2priv
+
+  NATinstance1:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      AvailabilityZone: !GetAtt Subnet1pub.AvailabilityZone
+      ImageId: !Ref NATimage
+      InstanceType: "t2.nano"
+      KeyName: !Ref KeyPair
+      Monitoring: false
+      SubnetId: !Ref Subnet1pub
+      SourceDestCheck: false
+
+  NATinstance2:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      AvailabilityZone: !GetAtt Subnet2pub.AvailabilityZone
+      ImageId: !Ref NATimage
+      InstanceType: "t2.nano"
+      KeyName: !Ref KeyPair
+      Monitoring: false
+      SubnetId: !Ref Subnet2pub
+      SourceDestCheck: false
+
+
+Outputs:
+
+  VPCid:
+    Value: !Ref VPC
+  SN1PubId:
+    Value: !Ref Subnet1pub
+  SN1PrivId:
+    Value: !Ref Subnet1priv
+  SN2PubId:
+    Value: !Ref Subnet2pub
+  SN2PrivId:
+    Value: !Ref Subnet2priv
