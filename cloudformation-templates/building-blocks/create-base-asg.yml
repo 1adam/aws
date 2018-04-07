@@ -36,9 +36,13 @@ Parameters:
     Type: "AWS::EC2::VPC::Id"
     Description: "Existing VPC to use"
 
-  SubnetIDs:
+  PubSubnetIDs:
     Type: "List<AWS::EC2::Subnet::Id>"
     Description: "At least two PUBLIC subnets that the LB will use to connect to the hosts."
+
+  PrivSubnetIDs:
+    Type: "List<AWS::EC2::Subnet::Id>"
+    Description: "At least two PRIVATE subnets where the hosts will reside."
 
 Conditions:
     ProdEnv: !Equals [ !Ref EnvType, prod ]
@@ -138,7 +142,7 @@ Resources:
       Scheme: "internet-facing"
       SecurityGroups:
         - !Ref LBSecGrp
-      Subnets: !Ref SubnetIDs
+      Subnets: !Ref PubSubnetIDs
       Type: application
       IpAddressType: ipv4
 
@@ -178,7 +182,7 @@ Resources:
       LaunchConfigurationName: !Ref LaunchCfg
       TargetGroupARNs:
         - !Ref TargetGroup
-      VPCZoneIdentifier: !Ref SubnetIDs
+      VPCZoneIdentifier: !Ref PrivSubnetIDs
 
 Outputs:
 
