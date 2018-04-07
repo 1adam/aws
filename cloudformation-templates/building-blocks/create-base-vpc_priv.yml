@@ -23,6 +23,13 @@ Parameters:
     Type: "AWS::EC2::Image::Id"
     Description: "AMI ID of a NAT instance"
 
+  MgmtIP:
+    Type: "String"
+    Description: "IP Address (not CIDR) for remote ssh access to NAT instances"
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})"
+    MinLength: 7
+    MaxLength: 15
+
 Resources:
 
   VPC:
@@ -215,6 +222,11 @@ Resources:
       GroupDescription: "For the NAT instances"
       VpcId: !Ref VPC
       SecurityGroupIngress:
+        - CidrIp: !Sub "${MgmtIP}/32"
+          Description: "Allow ssh from Management IP"
+          IpProtocol: "tcp"
+          FromPort: 22
+          ToPort: 22
         - CidrIp: !Select
             - 1
             - !Ref SNcidrs
@@ -228,6 +240,11 @@ Resources:
       GroupDescription: "For the NAT instances"
       VpcId: !Ref VPC
       SecurityGroupIngress:
+        - CidrIp: !Sub "${MgmtIP}/32"
+          Description: "Allow ssh from Management IP"
+          IpProtocol: "tcp"
+          FromPort: 22
+          ToPort: 22
         - CidrIp: !Select
             - 3
             - !Ref SNcidrs
@@ -259,3 +276,7 @@ Outputs:
     Value: !Ref Subnet2pub
   SN2PrivId:
     Value: !Ref Subnet2priv
+  NAT1:
+    Value: !Ref NATinstance1
+  NAT2:
+    Value: !Ref NATinstance2
