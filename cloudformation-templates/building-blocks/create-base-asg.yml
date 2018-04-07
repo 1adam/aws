@@ -38,7 +38,7 @@ Parameters:
 
   SubnetIDs:
     Type: "List<AWS::EC2::Subnet::Id>"
-    Description: "CSV list of at least two subnets in which the instances will reside"
+    Description: "At least two PUBLIC subnets that the LB will use to connect to the hosts."
 
 Conditions:
     ProdEnv: !Equals [ !Ref EnvType, prod ]
@@ -48,12 +48,13 @@ Resources:
 
   SecGrp:
     Type: "AWS::EC2::SecurityGroup"
+    DependsOn: LBSecGrp
     Properties:
       GroupName: !Sub "${AWS::StackName}-secgrp"
       GroupDescription: !Sub "SecGrp for ${AWS::StackName}"
       VpcId: !Ref VPCid
       SecurityGroupIngress:
-        - CidrIp: "0.0.0.0/0"
+        - SourceSecurityGroupId: !Ref LBSecGrp
           FromPort: 80
           ToPort: 80
           IpProtocol: tcp
@@ -83,7 +84,6 @@ Resources:
   LaunchCfg:
     Type: "AWS::AutoScaling::LaunchConfiguration"
     Properties:
-      AssociatePublicIpAddress: true
       IamInstanceProfile: !Ref EC2InstanceProfile
       ImageId: !Ref CustomAMI
       InstanceMonitoring: false

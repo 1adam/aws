@@ -28,20 +28,31 @@ Resources:
           # groups:
           # users:
           # sources:
-          # files:
+          files:
+            "/tmp/instCDagent":
+              content: !Sub |
+                wget "https://aws-codedeploy-${AWS::Region}.s3.amazonaws.com/latest/install" -O /tmp/codedeploy-install
+                chmod 755 /tmp/codedeploy-install
+                /tmp/codedeploy-install auto
+                service codedeploy-agent restart
+                service codedeploy-agent status ; exit $?
+              encoding: plain
+              group: root
+              owner: root
+              mode: "000755"
+            "/tmp/signalDone":
+              content: !Sub |
+                cfn-signal -s true --stack "${AWS::StackName}" -r "Setup Done" -i "${AWS::StackName}cfgRun" -d "server setup has completed successfully" "${theWaitHandle}"
+              encoding: plain
+              group: root
+              owner: root
+              mode: "000755"
+
           commands:
             agentInst001:
-              command: !Sub "wget \"https://aws-codedeploy-${AWS::Region}.s3.amazonaws.com/latest/install\" -O /tmp/codedeploy-install"
-            agentInst002:
-              command: chmod 755 /tmp/codedeploy-install
-            agentInst003:
-              command: /tmp/codedeploy-install auto
-            agentInst004:
-              command: service codedeploy-agent restart
-            agentInst005:
-              command: service codedeploy-agent status
+              command: /tmp/instCDagent
             agentInst999:
-              command: !Sub "cfn-signal -s true --stack \"${AWS::StackName}\" -r \"Setup Done\" -i \"${AWS::StackName}cfgRun\" -d \"server setup has completed successfully\" \"${theWaitHandle}\""
+              command: /tmp/signalDone
           services:
             sysvinit:
               apache2:
