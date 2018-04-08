@@ -287,10 +287,9 @@ Resources:
             let responseStatus = 'FAILED';
             let responseData = {};
             const ec2 = new aws.EC2({ region: event.ResourceProperties.Region });
-            const xD = new Date();
             const mkImgParams = {
               InstanceId: process.env.INST_ID,
-              Name: "Ubuntu16_LAMP-CodeDeploy_" + xD.toISOString()
+              Name: "Ubuntu16_LAMP-CodeDeploy_" + Date.now()
             };
             ec2.createImage(mkImgParams, (err, data) => {
               if (err) {
