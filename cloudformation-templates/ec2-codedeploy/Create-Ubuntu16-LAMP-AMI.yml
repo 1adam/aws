@@ -289,7 +289,7 @@ Resources:
             const ec2 = new aws.EC2({ region: event.ResourceProperties.Region });
             const mkImgParams = {
               InstanceId: process.env.INST_ID,
-              Name: "ubuntu16_" + Date.now()
+              Name: "Ubuntu16_LAMP-CodeDeploy_" + Date.now()
             };
             ec2.createImage(mkImgParams, (err, data) => {
               if (err) {
