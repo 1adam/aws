@@ -25,6 +25,10 @@ Parameters:
     Type: "String"
     Description: "Name of Target group to which the app will be deployed - PROD"
 
+  PipeIncBucketPrefix:
+    Type: "String"
+    Description: "prefix (path) in the bucket to poll for changes -- e.g. 'something/latest.tgz'"
+    AllowedPattern: "^[-_a-zA-Z0-9\/\.]+$"
 
 Resources:
 
@@ -104,7 +108,7 @@ Resources:
                 Version: "1"
               Configuration:
                 S3Bucket: !Ref PipeIncBucket
-                S3ObjectKey: 'app-source.tgz'
+                S3ObjectKey: !Ref PipeIncBucketPrefix
                 PollForSourceChanges: true
               OutputArtifacts:
                 - Name: fetchedSource
