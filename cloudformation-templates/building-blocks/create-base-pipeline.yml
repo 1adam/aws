@@ -28,7 +28,7 @@ Parameters:
   PipeIncBucketPrefix:
     Type: "String"
     Description: "prefix (path) in the bucket to poll for changes -- e.g. 'something/latest.tgz'"
-    AllowedPattern: "^[-_a-zA-Z0-9/\.]+$"
+    AllowedPattern: "^[-_a-zA-Z0-9/\\.]+$"
 
 Resources:
 
