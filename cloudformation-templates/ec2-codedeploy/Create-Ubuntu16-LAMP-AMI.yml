@@ -290,7 +290,7 @@ Resources:
             xD = new Date();
             const mkImgParams = {
               InstanceId: process.env.INST_ID,
-              Name: "Ubuntu16_LAMP-CodeDeploy_" + xD.toISOString();
+              Name: "Ubuntu16_LAMP-CodeDeploy_" + xD.toISOString()
             };
             ec2.createImage(mkImgParams, (err, data) => {
               if (err) {
