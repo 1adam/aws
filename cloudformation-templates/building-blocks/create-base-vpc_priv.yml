@@ -1,6 +1,6 @@
 ---
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Create a VPC with 2 public and 2 private subnets (1 of each type in 2 AZs), with remote access via ssh to either NAT instance.
+Description: "Create a VPC with 2 public and 2 private subnets (1 of each type in 2 AZs), 2 NAT instances for egress traffic, and a Bastion host beind an LB."
 
 Parameters:
 
@@ -22,6 +22,10 @@ Parameters:
   NATimage:
     Type: "AWS::EC2::Image::Id"
     Description: "NAT AMI ID"
+
+  BastionImage:
+    Type: "AWS::EC2::Image::Id"
+    Description: "Bastion host AMI ID"
 
   MgmtIP:
     Type: "String"
@@ -183,37 +187,37 @@ Resources:
       RouteTableId: !Ref RouteTablePriv2
       SubnetId: !Ref Subnet2priv
 
-  NATinstance1:
-    Type: "AWS::EC2::Instance"
-    Properties:
-      AvailabilityZone: !GetAtt Subnet1pub.AvailabilityZone
-      ImageId: !Ref NATimage
-      InstanceType: "t2.nano"
-      KeyName: !Ref KeyPair
-      Monitoring: false
-      SubnetId: !Ref Subnet1pub
-      SourceDestCheck: false
-      SecurityGroupIds:
-        - !GetAtt NAT1SecGrp.GroupId
-      Tags:
-        - Key: Name
-          Value: !Sub "${AWS::StackName}-nat1"
+  # NATinstance1:
+  #   Type: "AWS::EC2::Instance"
+  #   Properties:
+  #     AvailabilityZone: !GetAtt Subnet1pub.AvailabilityZone
+  #     ImageId: !Ref NATimage
+  #     InstanceType: "t2.nano"
+  #     KeyName: !Ref KeyPair
+  #     Monitoring: false
+  #     SubnetId: !Ref Subnet1pub
+  #     SourceDestCheck: false
+  #     SecurityGroupIds:
+  #       - !GetAtt NAT1SecGrp.GroupId
+  #     Tags:
+  #       - Key: Name
+  #         Value: !Sub "${AWS::StackName}-nat1"
 
-  NATinstance2:
-    Type: "AWS::EC2::Instance"
-    Properties:
-      AvailabilityZone: !GetAtt Subnet2pub.AvailabilityZone
-      ImageId: !Ref NATimage
-      InstanceType: "t2.nano"
-      KeyName: !Ref KeyPair
-      Monitoring: false
-      SubnetId: !Ref Subnet2pub
-      SourceDestCheck: false
-      SecurityGroupIds:
-        - !GetAtt NAT2SecGrp.GroupId
-      Tags:
-        - Key: Name
-          Value: !Sub "${AWS::StackName}-nat2"
+  # NATinstance2:
+  #   Type: "AWS::EC2::Instance"
+  #   Properties:
+  #     AvailabilityZone: !GetAtt Subnet2pub.AvailabilityZone
+  #     ImageId: !Ref NATimage
+  #     InstanceType: "t2.nano"
+  #     KeyName: !Ref KeyPair
+  #     Monitoring: false
+  #     SubnetId: !Ref Subnet2pub
+  #     SourceDestCheck: false
+  #     SecurityGroupIds:
+  #       - !GetAtt NAT2SecGrp.GroupId
+  #     Tags:
+  #       - Key: Name
+  #         Value: !Sub "${AWS::StackName}-nat2"
 
   NAT1SecGrp:
     Type: "AWS::EC2::SecurityGroup"
@@ -222,11 +226,6 @@ Resources:
       GroupDescription: "For the NAT instances"
       VpcId: !Ref VPC
       SecurityGroupIngress:
-        - CidrIp: !Sub "${MgmtIP}/32"
-          Description: "Allow ssh from Management IP"
-          IpProtocol: "tcp"
-          FromPort: 22
-          ToPort: 22
         - CidrIp: !Select
             - 1
             - !Ref SNcidrs
@@ -240,16 +239,24 @@ Resources:
       GroupDescription: "For the NAT instances"
       VpcId: !Ref VPC
       SecurityGroupIngress:
-        - CidrIp: !Sub "${MgmtIP}/32"
-          Description: "Allow ssh from Management IP"
-          IpProtocol: "tcp"
-          FromPort: 22
-          ToPort: 22
         - CidrIp: !Select
             - 3
             - !Ref SNcidrs
           Description: "Allow passthru traffic"
           IpProtocol: -1
+
+  BHSecGrp:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupName: !Sub "${AWS::StackName}-bhSG"
+      GroupDescription: "For the Bastion host"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !Ref BHLBSecGrp
+          Description: "Allow ssh from Management IP via the LB"
+          IpProtocol: "tcp"
+          FromPort: 22
+          ToPort: 22
 
   PrivInstSecGrp:
     Type: "AWS::EC2::SecurityGroup"
@@ -258,8 +265,13 @@ Resources:
       GroupDescription: "Control access to instances in the private subnets"
       VpcId: !Ref VPC
       SecurityGroupIngress:
-        - CidrIp: !GetAtt VPC.CidrBlock
-          Description: "Allow ssh from inside"
+        - SourceSecurityGroupId: !Ref NAT1SecGrp
+          Description: "Allow ssh from NAT instance 1"
+          IpProtocol: "tcp"
+          FromPort: 22
+          ToPort: 22
+        - SourceSecurityGroupId: !Ref NAT2SecGrp
+          Description: "Allow ssh from NAT instance 2"
           IpProtocol: "tcp"
           FromPort: 22
           ToPort: 22

@@ -44,6 +44,21 @@ Parameters:
     Type: "List<AWS::EC2::Subnet::Id>"
     Description: "At least two PRIVATE subnets where the hosts will reside."
 
+  ASGminSize:
+    Type: String
+    Description: "Minimum # of instances in this ASG"
+    AllowedPattern: "(\\d+)"
+
+  ASGmaxSize:
+    Type: String
+    Description: "Maximum # of instances in this ASG"
+    AllowedPattern: "(\\d+)"
+
+  ASGdesiredSize:
+    Type: String
+    Description: "Desired # of instances in this ASG"
+    AllowedPattern: "(\\d+)"
+
 Conditions:
     ProdEnv: !Equals [ !Ref EnvType, prod ]
     UseManagementIp: !Not [!Equals [ !Ref ManagementIp, ""]]
@@ -174,9 +189,9 @@ Resources:
     Properties:
       AutoScalingGroupName: !Sub "${AWS::StackName}-asg"
       Cooldown: 180
-      DesiredCapacity: 1
-      MinSize: 1
-      MaxSize: 2
+      DesiredCapacity: !Ref ASGdesiredSize
+      MinSize: !Ref ASGminSize
+      MaxSize: !Ref ASGmaxSize
       HealthCheckGracePeriod: 180
       HealthCheckType: EC2
       LaunchConfigurationName: !Ref LaunchCfg
