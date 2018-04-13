@@ -1,0 +1,107 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Create a VPC with 2 private subnets (in 2 AZs)
+
+Parameters:
+
+  VPCcidr:
+    Type: String
+    Description: "CIDR Block for the VPC."
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\/(\\d{1,2})"
+    Default: "10.20.0.0/16"
+
+  SNcidrs:
+    Type: CommaDelimitedList
+    Description: "Comma-delimited list of two CIDR blocks for the subnets (2 priv in diff AZs).  These must fall within the VPC CIDR block, and must not overlap."
+    Default: "10.20.0.0/24, 10.20.1.0/24"
+
+Resources:
+
+  VPC:
+    Type: "AWS::EC2::VPC"
+    Properties:
+      CidrBlock: !Ref VPCcidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: false
+      InstanceTenancy: default
+      Tags:
+      - Key: Name
+        Value: !Sub "${AWS::StackName}-vpc"
+
+  Subnet1priv:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select
+        - 0
+        - Fn::GetAZs: !Sub "${AWS::Region}"
+      CidrBlock: !Select
+        - 1
+        - !Ref SNcidrs
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-subnet1priv"
+
+  Subnet2priv:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select
+        - 1
+        - Fn::GetAZs: !Sub "${AWS::Region}"
+      CidrBlock: !Select
+        - 3
+        - !Ref SNcidrs
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-subnet2priv"
+
+  RouteTablePriv1:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-rt-priv1"
+
+  RouteTablePriv2:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-rt-priv2"
+
+  Subnet1RTassocPriv:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTablePriv1
+      SubnetId: !Ref Subnet1priv
+
+  Subnet2RTassocPriv:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTablePriv2
+      SubnetId: !Ref Subnet2priv
+
+  PrivInstSecGrp:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupName: !Sub "${AWS::StackName}-privSG"
+      GroupDescription: "Control access to instances in the private subnets"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - CidrIp: !GetAtt VPC.CidrBlock
+          Description: "Allow ssh from inside"
+          IpProtocol: "tcp"
+          FromPort: 22
+          ToPort: 22
+
+Outputs:
+
+  VPCid:
+    Value: !Ref VPC
+  SN1PrivId:
+    Value: !Ref Subnet1priv
+  SN2PrivId:
+    Value: !Ref Subnet2priv
