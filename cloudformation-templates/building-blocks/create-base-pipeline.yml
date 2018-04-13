@@ -11,24 +11,25 @@ Parameters:
 
   ASG:
     Type: "String"
-    Description: "ID of the ASG to plonk deployments into - STG"
+    Description: "ID of the ASG to deploy to for STG"
 
   TargetGroupName:
     Type: "String"
-    Description: "Name of Target group to which the app will be deployed - STG"
+    Description: "Name of Target Group to which the app will be deployed - STG"
 
   ASGprod:
     Type: "String"
-    Description: "ID of the ASG to plonk deployments into - PROD"
+    Description: "ID of the ASG to deploy to for PROD"
 
   TargetGroupNamePROD:
     Type: "String"
-    Description: "Name of Target group to which the app will be deployed - PROD"
+    Description: "Name of Target Group to which the app will be deployed - PROD"
 
   PipeIncBucketPrefix:
     Type: "String"
     Description: "prefix (path) in the bucket to poll for changes -- e.g. 'something/latest.tgz'"
     AllowedPattern: "^[-_a-zA-Z0-9/\\.]+$"
+    Default: "latest.tgz"
 
 Resources:
 
@@ -37,10 +38,10 @@ Resources:
     Properties:
       ApplicationName: !Ref AppName
 
-  CodeDepGrp:
+  CodeDepGrpSTG:
     Type: "AWS::CodeDeploy::DeploymentGroup"
     Properties:
-      DeploymentGroupName: !Sub "${AWS::StackName}-depGrp-stg"
+      DeploymentGroupName: !Sub "${AppName}_stg"
       ApplicationName: !Ref AppName
       AutoScalingGroups:
         - !Ref ASG
@@ -56,7 +57,7 @@ Resources:
   CodeDepGrpPROD:
     Type: "AWS::CodeDeploy::DeploymentGroup"
     Properties:
-      DeploymentGroupName: !Sub "${AWS::StackName}-depGrp-prod"
+      DeploymentGroupName: !Sub "${AppName}_prod"
       ApplicationName: !Ref AppName
       AutoScalingGroups:
         - !Ref ASGprod
@@ -72,7 +73,7 @@ Resources:
   CodeDepSvcRole:
     Type: "AWS::IAM::Role"
     Properties:
-      RoleName: !Sub "${AWS::StackName}-cd-svc-role"
+      RoleName: !Sub "${AWS::StackName}-codedep-svc-role"
       ManagedPolicyArns:
         - "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole"
       AssumeRolePolicyDocument: !Sub |
@@ -95,7 +96,7 @@ Resources:
       ArtifactStore:
         Location: !Ref PipeIncBucket
         Type: S3
-      Name: !Sub "${AWS::StackName}-pipe"
+      Name: !Sub "${AppName}-pipe"
       RoleArn: !GetAtt CodePipeSvcRole.Arn
       Stages:
         - Name: GetSource
@@ -122,7 +123,7 @@ Resources:
                 Version: "1"
               Configuration:
                 ApplicationName: !Ref CodeDepApp
-                DeploymentGroupName: !Ref CodeDepGrp
+                DeploymentGroupName: !Ref CodeDepGrpSTG
               InputArtifacts:
                 - Name: fetchedSource
         - Name: WaitForApproval
