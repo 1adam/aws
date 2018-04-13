@@ -1,6 +1,6 @@
 ---
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Create a VPC with 2 public and 2 private subnets (1 of each type in 2 AZs)
+Description: Create a VPC with 2 public and 2 private subnets (1 of each type in 2 AZs), with remote access via ssh to either NAT instance.
 
 Parameters:
 
@@ -21,7 +21,7 @@ Parameters:
 
   NATimage:
     Type: "AWS::EC2::Image::Id"
-    Description: "AMI ID of a NAT instance"
+    Description: "NAT AMI ID"
 
   MgmtIP:
     Type: "String"
@@ -56,7 +56,7 @@ Resources:
         - !Ref SNcidrs
       Tags:
         - Key: Name
-          Value: !Sub "${AWS::StackName}-subnet1pub"
+          Value: !Sub "${AWS::StackName}-sn1pub"
 
   Subnet1priv:
     Type: "AWS::EC2::Subnet"
@@ -70,7 +70,7 @@ Resources:
         - !Ref SNcidrs
       Tags:
         - Key: Name
-          Value: !Sub "${AWS::StackName}-subnet1priv"
+          Value: !Sub "${AWS::StackName}-sn1priv"
 
   Subnet2pub:
     Type: "AWS::EC2::Subnet"
@@ -85,7 +85,7 @@ Resources:
         - !Ref SNcidrs
       Tags:
         - Key: Name
-          Value: !Sub "${AWS::StackName}-subnet2pub"
+          Value: !Sub "${AWS::StackName}-sn2pub"
 
   Subnet2priv:
     Type: "AWS::EC2::Subnet"
@@ -99,14 +99,14 @@ Resources:
         - !Ref SNcidrs
       Tags:
         - Key: Name
-          Value: !Sub "${AWS::StackName}-subnet2priv"
+          Value: !Sub "${AWS::StackName}-sn2priv"
 
   VPCigw:
     Type: "AWS::EC2::InternetGateway"
     Properties:
       Tags:
         - Key: Name
-          Value: !Sub "${AWS::StackName}-vpc-igw"
+          Value: !Sub "${AWS::StackName}-igw"
 
   IGWattach:
     Type: "AWS::EC2::VPCGatewayAttachment"
@@ -120,7 +120,7 @@ Resources:
       VpcId: !Ref VPC
       Tags:
         - Key: Name
-          Value: !Sub "${AWS::StackName}-rt-pub"
+          Value: !Sub "${AWS::StackName}-pub"
 
   RouteTablePriv1:
     Type: "AWS::EC2::RouteTable"
@@ -128,7 +128,7 @@ Resources:
       VpcId: !Ref VPC
       Tags:
         - Key: Name
-          Value: !Sub "${AWS::StackName}-rt-priv1"
+          Value: !Sub "${AWS::StackName}-priv1"
 
   RouteTablePriv2:
     Type: "AWS::EC2::RouteTable"
@@ -136,7 +136,7 @@ Resources:
       VpcId: !Ref VPC
       Tags:
         - Key: Name
-          Value: !Sub "${AWS::StackName}-rt-priv2"
+          Value: !Sub "${AWS::StackName}-priv2"
 
   PubRoute:
     Type: "AWS::EC2::Route"
@@ -268,15 +268,29 @@ Outputs:
 
   VPCid:
     Value: !Ref VPC
+    Export:
+      Name: !Sub "${AWS::StackName}-VPC"
   SN1PubId:
     Value: !Ref Subnet1pub
+    Export:
+      Name: !Sub "${AWS::StackName}-SN1pub"
   SN1PrivId:
     Value: !Ref Subnet1priv
+    Export:
+      Name: !Sub "${AWS::StackName}-SN1priv"
   SN2PubId:
     Value: !Ref Subnet2pub
+    Export:
+      Name: !Sub "${AWS::StackName}-SN2pub"
   SN2PrivId:
     Value: !Ref Subnet2priv
+    Export:
+      Name: !Sub "${AWS::StackName}-SN2priv"
   NAT1:
     Value: !Ref NATinstance1
+    Export:
+      Name: !Sub "${AWS::StackName}-NAT1"
   NAT2:
     Value: !Ref NATinstance2
+    Export:
+      Name: !Sub "${AWS::StackName}-NAT2"

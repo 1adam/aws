@@ -36,7 +36,7 @@ Resources:
         - 0
         - Fn::GetAZs: !Sub "${AWS::Region}"
       CidrBlock: !Select
-        - 1
+        - 0
         - !Ref SNcidrs
       Tags:
         - Key: Name
@@ -50,7 +50,7 @@ Resources:
         - 1
         - Fn::GetAZs: !Sub "${AWS::Region}"
       CidrBlock: !Select
-        - 3
+        - 1
         - !Ref SNcidrs
       Tags:
         - Key: Name
