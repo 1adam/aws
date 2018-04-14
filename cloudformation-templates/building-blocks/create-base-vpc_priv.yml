@@ -1,6 +1,6 @@
 ---
 AWSTemplateFormatVersion: "2010-09-09"
-Description: "Create a VPC with 2 public and 2 private subnets (1 of each type in 2 AZs), 2 NAT instances for egress traffic, and a Bastion host beind an LB."
+Description: "Create a VPC with 2 public and 2 private subnets (1 of each type in 2 AZs), 2 NAT instances for egress traffic, and a Bastion host (in an ASG) beind an LB."
 
 Parameters:
 
@@ -119,6 +119,7 @@ Resources:
       VpcId: !Ref VPC
 
   RouteTablePub:
+    DependsOn: VPC
     Type: "AWS::EC2::RouteTable"
     Properties:
       VpcId: !Ref VPC
@@ -143,6 +144,7 @@ Resources:
           Value: !Sub "${AWS::StackName}-priv2"
 
   PubRoute:
+    DependsOn: RouteTablePub
     Type: "AWS::EC2::Route"
     Properties:
       DestinationCidrBlock: "0.0.0.0/0"
@@ -153,14 +155,14 @@ Resources:
     Type: "AWS::EC2::Route"
     Properties:
       DestinationCidrBlock: "0.0.0.0/0"
-      InstanceId: !Ref NATinstance1
+      NetworkInterfaceId: !Ref NAT1eni
       RouteTableId: !Ref RouteTablePriv1
 
   PrivRoute2:
     Type: "AWS::EC2::Route"
     Properties:
       DestinationCidrBlock: "0.0.0.0/0"
-      InstanceId: !Ref NATinstance2
+      NetworkInterfaceId: !Ref NAT2eni
       RouteTableId: !Ref RouteTablePriv2
 
   Subnet1RTassocPub:
@@ -187,37 +189,29 @@ Resources:
       RouteTableId: !Ref RouteTablePriv2
       SubnetId: !Ref Subnet2priv
 
-  # NATinstance1:
-  #   Type: "AWS::EC2::Instance"
-  #   Properties:
-  #     AvailabilityZone: !GetAtt Subnet1pub.AvailabilityZone
-  #     ImageId: !Ref NATimage
-  #     InstanceType: "t2.nano"
-  #     KeyName: !Ref KeyPair
-  #     Monitoring: false
-  #     SubnetId: !Ref Subnet1pub
-  #     SourceDestCheck: false
-  #     SecurityGroupIds:
-  #       - !GetAtt NAT1SecGrp.GroupId
-  #     Tags:
-  #       - Key: Name
-  #         Value: !Sub "${AWS::StackName}-nat1"
+  NAT1eni:
+    Type: "AWS::EC2::NetworkInterface"
+    Properties:
+      Description: "Used by the 1st NAT instance"
+      GroupSet:
+        - !Ref NAT1SecGrp
+      SourceDestCheck: false
+      SubnetId: !Ref Subnet1pub
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-nat1eni"
 
-  # NATinstance2:
-  #   Type: "AWS::EC2::Instance"
-  #   Properties:
-  #     AvailabilityZone: !GetAtt Subnet2pub.AvailabilityZone
-  #     ImageId: !Ref NATimage
-  #     InstanceType: "t2.nano"
-  #     KeyName: !Ref KeyPair
-  #     Monitoring: false
-  #     SubnetId: !Ref Subnet2pub
-  #     SourceDestCheck: false
-  #     SecurityGroupIds:
-  #       - !GetAtt NAT2SecGrp.GroupId
-  #     Tags:
-  #       - Key: Name
-  #         Value: !Sub "${AWS::StackName}-nat2"
+  NAT2eni:
+    Type: "AWS::EC2::NetworkInterface"
+    Properties:
+      Description: "Used by the 2nd NAT instance"
+      GroupSet:
+        - !Ref NAT2SecGrp
+      SourceDestCheck: false
+      SubnetId: !Ref Subnet2pub
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-nat2eni"
 
   NAT1SecGrp:
     Type: "AWS::EC2::SecurityGroup"
@@ -229,7 +223,7 @@ Resources:
         - CidrIp: !Select
             - 1
             - !Ref SNcidrs
-          Description: "Allow passthru traffic"
+          Description: "Allow passthru traffic - priv1"
           IpProtocol: -1
 
   NAT2SecGrp:
@@ -242,7 +236,7 @@ Resources:
         - CidrIp: !Select
             - 3
             - !Ref SNcidrs
-          Description: "Allow passthru traffic"
+          Description: "Allow passthru traffic - priv2"
           IpProtocol: -1
 
   BHSecGrp:
@@ -252,8 +246,8 @@ Resources:
       GroupDescription: "For the Bastion host"
       VpcId: !Ref VPC
       SecurityGroupIngress:
-        - SourceSecurityGroupId: !Ref BHLBSecGrp
-          Description: "Allow ssh from Management IP via the LB"
+        - CidrIp: !Sub "${MgmtIP}/32"
+          Description: "Allow ssh from Management IP"
           IpProtocol: "tcp"
           FromPort: 22
           ToPort: 22
@@ -265,16 +259,182 @@ Resources:
       GroupDescription: "Control access to instances in the private subnets"
       VpcId: !Ref VPC
       SecurityGroupIngress:
-        - SourceSecurityGroupId: !Ref NAT1SecGrp
-          Description: "Allow ssh from NAT instance 1"
+        - SourceSecurityGroupId: !Ref BHSecGrp
+          Description: "Allow ssh from Bastion instance"
           IpProtocol: "tcp"
           FromPort: 22
           ToPort: 22
-        - SourceSecurityGroupId: !Ref NAT2SecGrp
-          Description: "Allow ssh from NAT instance 2"
-          IpProtocol: "tcp"
-          FromPort: 22
-          ToPort: 22
+
+  BHLaunchCfg:
+    DependsOn: VPCigw
+    Type: "AWS::AutoScaling::LaunchConfiguration"
+    Properties:
+      AssociatePublicIpAddress: true
+      KeyName: !Ref KeyPair
+      IamInstanceProfile: !Ref BHinstanceProfile
+      ImageId: !Ref BastionImage
+      InstanceMonitoring: false
+      InstanceType: 't2.nano'
+      SecurityGroups:
+        - !Ref BHSecGrp
+
+  NAT1LaunchTemplate:
+    Type: "AWS::EC2::LaunchTemplate"
+    Properties:
+      LaunchTemplateName: !Sub "${AWS::StackName}-nat1lt"
+      LaunchTemplateData:
+        IamInstanceProfile:
+          Name: !Ref NATinstanceProfile
+        ImageId: !Ref NATimage
+        InstanceInitiatedShutdownBehavior: 'terminate'
+        InstanceType: 't2.nano'
+        KeyName: !Ref KeyPair
+        Monitoring:
+          Enabled: false
+        NetworkInterfaces:
+          - DeleteOnTermination: false
+            Description: "NAT1 ENI"
+            DeviceIndex: 0
+            NetworkInterfaceId: !Ref NAT1eni
+
+  NAT2LaunchTemplate:
+    Type: "AWS::EC2::LaunchTemplate"
+    Properties:
+      LaunchTemplateName: !Sub "${AWS::StackName}-nat2lt"
+      LaunchTemplateData:
+        IamInstanceProfile:
+          Name: !Ref NATinstanceProfile
+        ImageId: !Ref NATimage
+        InstanceInitiatedShutdownBehavior: 'terminate'
+        InstanceType: 't2.nano'
+        KeyName: !Ref KeyPair
+        Monitoring:
+          Enabled: false
+        NetworkInterfaces:
+          - DeleteOnTermination: false
+            Description: "NAT2 ENI"
+            DeviceIndex: 0
+            NetworkInterfaceId: !Ref NAT2eni
+
+  NATinstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      InstanceProfileName: !Sub "${AWS::StackName}-nat-instprof"
+      Roles:
+        - !Ref NATinstanceRole
+
+  NATinstanceRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Sub "${AWS::StackName}-NATinstRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "ec2.amazonaws.com"
+            Action: "sts:AssumeRole"
+
+  BHinstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      InstanceProfileName: !Sub "${AWS::StackName}-bh-instprof"
+      Roles:
+        - !Ref BHinstanceRole
+
+  BHinstanceRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Sub "${AWS::StackName}-BHinstRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "ec2.amazonaws.com"
+            Action: "sts:AssumeRole"
+
+  BHTargetGroup:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Properties:
+      Name: !Sub "${AWS::StackName}-tg"
+      HealthCheckPort: 22
+      HealthCheckProtocol: TCP
+      HealthCheckIntervalSeconds: 10
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      Port: 22
+      Protocol: TCP
+      VpcId: !Ref VPC
+
+  BHLB:
+    Type: "AWS::ElasticLoadBalancingV2::LoadBalancer"
+    Properties:
+      LoadBalancerAttributes:
+        - Key: "load_balancing.cross_zone.enabled"
+          Value: true
+      Name: !Sub "${AWS::StackName}-lb"
+      Scheme: "internet-facing"
+      Subnets:
+        - !Ref Subnet1pub
+        - !Ref Subnet2pub
+      Type: network
+      IpAddressType: ipv4
+
+  BHLBListener:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref BHTargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref BHLB
+      Port: 22
+      Protocol: TCP
+
+  NAT1asg:
+    Type: "AWS::AutoScaling::AutoScalingGroup"
+    DependsOn: NAT1LaunchTemplate
+    Properties:
+      AutoScalingGroupName: !Sub "${AWS::StackName}-nat1asg"
+      DesiredCapacity: 1
+      MinSize: 1
+      MaxSize: 1
+      LaunchTemplate:
+        LaunchTemplateName: !Sub "${AWS::StackName}-nat1lt"
+        Version: 1
+      AvailabilityZones:
+        - !GetAtt Subnet1pub.AvailabilityZone
+
+  NAT2asg:
+    Type: "AWS::AutoScaling::AutoScalingGroup"
+    DependsOn: NAT2LaunchTemplate
+    Properties:
+      AutoScalingGroupName: !Sub "${AWS::StackName}-nat2asg"
+      DesiredCapacity: 1
+      MinSize: 1
+      MaxSize: 1
+      LaunchTemplate:
+        LaunchTemplateName: !Sub "${AWS::StackName}-nat2lt"
+        Version: 1
+      AvailabilityZones:
+        - !GetAtt Subnet2pub.AvailabilityZone
+
+  BHasg:
+    Type: "AWS::AutoScaling::AutoScalingGroup"
+    Properties:
+      AutoScalingGroupName: !Sub "${AWS::StackName}-BHasg"
+      DesiredCapacity: 1
+      MinSize: 1
+      MaxSize: 1
+      LaunchConfigurationName: !Ref BHLaunchCfg
+      TargetGroupARNs:
+        - !Ref BHTargetGroup
+      AvailabilityZones:
+        - !GetAtt Subnet1pub.AvailabilityZone
+        - !GetAtt Subnet2pub.AvailabilityZone
+      VPCZoneIdentifier:
+        - !Ref Subnet1pub
+        - !Ref Subnet2pub
 
 Outputs:
 
@@ -298,11 +458,7 @@ Outputs:
     Value: !Ref Subnet2priv
     Export:
       Name: !Sub "${AWS::StackName}-SN2priv"
-  NAT1:
-    Value: !Ref NATinstance1
+  BHLBEndpoint:
+    Value: !GetAtt BHLB.DNSName
     Export:
-      Name: !Sub "${AWS::StackName}-NAT1"
-  NAT2:
-    Value: !Ref NATinstance2
-    Export:
-      Name: !Sub "${AWS::StackName}-NAT2"
+      Name: !Sub "${AWS::StackName}-BHLBEndpoint"
