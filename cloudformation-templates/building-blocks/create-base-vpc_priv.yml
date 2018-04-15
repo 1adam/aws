@@ -465,4 +465,4 @@ Outputs:
   BHSecGroup:
     Value: !Ref BHSecGrp
     Export:
-      Value: !Sub "${AWS::StackName}-BHSecGrp"
+      Name: !Sub "${AWS::StackName}-BHSecGrp"
