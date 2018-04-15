@@ -36,6 +36,10 @@ Parameters:
     Type: "AWS::EC2::VPC::Id"
     Description: "Existing VPC to use"
 
+  BHSecGrp:
+    Type: "AWS::EC2::SecurityGroup::Id"
+    Description: "ID of the Bastion Host's Security Group"
+
   PubSubnetIDs:
     Type: "List<AWS::EC2::Subnet::Id>"
     Description: "At least two PUBLIC subnets that the LB will use to connect to the hosts."
@@ -77,16 +81,10 @@ Resources:
           FromPort: 80
           ToPort: 80
           IpProtocol: tcp
-        - !If
-          - UseManagementIp
-          - CidrIp: !Join
-            - ""
-            - - !Ref ManagementIp
-              - "/32"
-            FromPort: 22
-            ToPort: 22
-            IpProtocol: tcp
-          - !Ref "AWS::NoValue"
+        - SourceSecurityGroupId: !Ref BHSecGrp
+          FromPort: 22
+          ToPort: 22
+          IpProtocol: tcp
 
   LBSecGrp:
     Type: "AWS::EC2::SecurityGroup"

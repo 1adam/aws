@@ -462,3 +462,7 @@ Outputs:
     Value: !GetAtt BHLB.DNSName
     Export:
       Name: !Sub "${AWS::StackName}-BHLBEndpoint"
+  BHSecGroup:
+    Value: !Ref BHSecGrp
+    Export:
+      Value: !Sub "${AWS::StackName}-BHSecGrp"
